@@ -29,6 +29,7 @@ module picosoc (
 	input clk,
 	input resetn,
 
+	// Memory mapped user peripherals,see Memory map
 	output        iomem_valid,
 	input         iomem_ready,
 	output [ 3:0] iomem_wstrb,
@@ -67,11 +68,13 @@ module picosoc (
 	parameter [0:0] ENABLE_COUNTERS = 1;
 	parameter [0:0] ENABLE_IRQ_QREGS = 0;
 
+	// 声明sram大小、终止地址（1KB）及程序起始地址（h0010_0000=1048576=1MB）
 	parameter integer MEM_WORDS = 256;
 	parameter [31:0] STACKADDR = (4*MEM_WORDS);       // end of memory
 	parameter [31:0] PROGADDR_RESET = 32'h 0010_0000; // 1 MB into flash
 	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0000;
 
+	// 中断向量，因always语法规定声明为reg，实际为wire类型
 	reg [31:0] irq;
 	wire irq_stall = 0;
 	wire irq_uart = 0;
@@ -85,6 +88,7 @@ module picosoc (
 		irq[7] = irq_7;
 	end
 
+	// 见picorv32端口声明，因picorv32同sram、flash、uart交互使用同一接口，下面代码会根据实际情况进行处理
 	wire mem_valid;
 	wire mem_instr;
 	wire mem_ready;
@@ -93,30 +97,38 @@ module picosoc (
 	wire [3:0] mem_wstrb;
 	wire [31:0] mem_rdata;
 
+	// spi flash ready和数据返回信号
 	wire spimem_ready;
 	wire [31:0] spimem_rdata;
 
+	// sram ready和数据返回信号
 	reg ram_ready;
 	wire [31:0] ram_rdata;
 
+	// 地址高8位如果大于8'h 01，则为io访问（既不是访问sram也不是访问flash），见Memory map
 	assign iomem_valid = mem_valid && (mem_addr[31:24] > 8'h 01);
 	assign iomem_wstrb = mem_wstrb;
 	assign iomem_addr = mem_addr;
 	assign iomem_wdata = mem_wdata;
 
+	// SPI Flash Controller Config Register,see Memory map
 	wire spimemio_cfgreg_sel = mem_valid && (mem_addr == 32'h 0200_0000);
 	wire [31:0] spimemio_cfgreg_do;
 
+	// UART Clock Divider Register,see Memory map
 	wire        simpleuart_reg_div_sel = mem_valid && (mem_addr == 32'h 0200_0004);
 	wire [31:0] simpleuart_reg_div_do;
 
+	// UART Send/Recv Data Register,see Memory map
 	wire        simpleuart_reg_dat_sel = mem_valid && (mem_addr == 32'h 0200_0008);
 	wire [31:0] simpleuart_reg_dat_do;
 	wire        simpleuart_reg_dat_wait;
 
+	// 因picorv32同sram、flash、uart交互使用同一接口，因此需要根据不同情况从各个设备获取ready信号，共6种情况
 	assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || spimemio_cfgreg_sel ||
 			simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
 
+	// 因picorv32同sram、flash、uart交互使用同一接口，因此需要根据不同情况从各个设备获取响应数据
 	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata : spimem_ready ? spimem_rdata : ram_ready ? ram_rdata :
 			spimemio_cfgreg_sel ? spimemio_cfgreg_do : simpleuart_reg_div_sel ? simpleuart_reg_div_do :
 			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h 0000_0000;
@@ -148,8 +160,10 @@ module picosoc (
 	spimemio spimemio (
 		.clk    (clk),
 		.resetn (resetn),
+		// 确定是否访问flash
 		.valid  (mem_valid && mem_addr >= 4*MEM_WORDS && mem_addr < 32'h 0200_0000),
 		.ready  (spimem_ready),
+		// 0x01000000 .. 0x01FFFFFF，实际只使用了24位地址空间
 		.addr   (mem_addr[23:0]),
 		.rdata  (spimem_rdata),
 
@@ -209,6 +223,7 @@ endmodule
 // Implementation note:
 // Replace the following two modules with wrappers for your SRAM cells.
 
+// 包含32个32位寄存器的3端口register file
 module picosoc_regs (
 	input clk, wen,
 	input [5:0] waddr,
@@ -227,6 +242,7 @@ module picosoc_regs (
 	assign rdata2 = regs[raddr2[4:0]];
 endmodule
 
+// 默认256字32位大小的单端口sram，写使能（wen）为4位以支持按字节寻址
 module picosoc_mem #(
 	parameter integer WORDS = 256
 ) (

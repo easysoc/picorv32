@@ -85,6 +85,8 @@ module picorv32 #(
 	input clk, resetn,
 	output reg trap,
 
+	// memory访问接口，https://inst.eecs.berkeley.edu/~cs150/Documents/Interfaces.pdf
+	// 任何同外界的交互，包括sram、flash、uart均通过此接口。如果为取指令操作，mem_instr为1
 	output reg        mem_valid,
 	output reg        mem_instr,
 	input             mem_ready,

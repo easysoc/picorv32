@@ -20,18 +20,23 @@
 module hx8kdemo (
 	input clk,
 
+	// uart 接口，连接到FTDI
 	output ser_tx,
 	input ser_rx,
 
+	// 8个led
 	output [7:0] leds,
 
+	// spi接口，CS(片选) CLK(时钟) MISO(数据输入) MOSI(数据输出)
 	output flash_csb,
 	output flash_clk,
 	inout  flash_io0,
 	inout  flash_io1,
+	// QSPI模式接口
 	inout  flash_io2,
 	inout  flash_io3,
 
+	// 将接口引出方便调试
 	output debug_ser_tx,
 	output debug_ser_rx,
 
@@ -79,6 +84,7 @@ module hx8kdemo (
 			gpio <= 0;
 		end else begin
 			iomem_ready <= 0;
+			// Memory mapped user peripherals
 			if (iomem_valid && !iomem_ready && iomem_addr[31:24] == 8'h 03) begin
 				iomem_ready <= 1;
 				iomem_rdata <= gpio;
