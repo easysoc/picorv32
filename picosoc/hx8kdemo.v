@@ -27,7 +27,7 @@ module hx8kdemo (
 	// 8个led
 	output [7:0] leds,
 
-	// spi接口，CS(片选) CLK(时钟) MISO(数据输入) MOSI(数据输出)
+	// spi接口，CS(片选) CLK(时钟) MISO(主入从出) MOSI(主出从入)
 	output flash_csb,
 	output flash_clk,
 	inout  flash_io0,
@@ -76,6 +76,7 @@ module hx8kdemo (
 	wire [31:0] iomem_wdata;
 	reg  [31:0] iomem_rdata;
 
+	// 通过控制gpio，实现控制led
 	reg [31:0] gpio;
 	assign leds = gpio;
 
@@ -84,7 +85,7 @@ module hx8kdemo (
 			gpio <= 0;
 		end else begin
 			iomem_ready <= 0;
-			// Memory mapped user peripherals
+			// 向 gpio 写入数据
 			if (iomem_valid && !iomem_ready && iomem_addr[31:24] == 8'h 03) begin
 				iomem_ready <= 1;
 				iomem_rdata <= gpio;
