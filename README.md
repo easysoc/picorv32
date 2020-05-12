@@ -53,11 +53,11 @@ the latter results in a smaller core.
 resources, such as many FPGAs, disabling the 16 upper registers and/or
 disabling the dual-port register file may not further reduce the core size.*
 
-The core exists in two variations: `picorv32` and `picorv32_axi`. The former
-provides a simple native memory interface, that is easy to use in simple
-environments, and the latter provides an AXI-4 Lite Master interface that can
+The core exists in three variations: `picorv32`, `picorv32_axi` and `picorv32_wb`.
+The first provides a simple native memory interface, that is easy to use in simple
+environments. `picorv32_axi` provides an AXI-4 Lite Master interface that can
 easily be integrated with existing systems that are already using the AXI
-standard.
+standard. `picorv32_wb` provides a Wishbone master interface.
 
 A separate core `picorv32_axi_adapter` is provided to bridge between the native
 memory interface and AXI4. This core can be used to create custom cores that
@@ -92,7 +92,7 @@ This Verilog file contains the following Verilog modules:
 | `picorv32_axi`           | The version of the CPU with AXI4-Lite interface                       |
 | `picorv32_axi_adapter`   | Adapter from PicoRV32 Memory Interface to AXI4-Lite                   |
 | `picorv32_wb`            | The version of the CPU with Wishbone Master interface                 |
-| `picorv32_pcpi_mul`      | A PCPI core that implements the `MUL[H[SU|U]]` instructions           |
+| `picorv32_pcpi_mul`      | A PCPI core that implements the `MUL[H[SU\|U]]` instructions          |
 | `picorv32_pcpi_fast_mul` | A version of `picorv32_pcpi_fast_mul` using a single cycle multiplier |
 | `picorv32_pcpi_div`      | A PCPI core that implements the `DIV[U]/REM[U]` instructions          |
 
@@ -181,7 +181,7 @@ transaction. In the default configuration the PicoRV32 core only expects the
 latches the value internally.
 
 This parameter is only available for the `picorv32` core. In the
-`picorv32_axi` core this is implicitly set to 0.
+`picorv32_axi` and `picorv32_wb` core this is implicitly set to 0.
 
 #### TWO_STAGE_SHIFT (default = 1)
 
@@ -632,7 +632,7 @@ pure RV32I target, and install it in `/opt/riscv32i`:
 
     git clone https://github.com/riscv/riscv-gnu-toolchain riscv-gnu-toolchain-rv32i
     cd riscv-gnu-toolchain-rv32i
-    git checkout c3ad555
+    git checkout 411d134
     git submodule update --init --recursive
 
     mkdir build; cd build
@@ -661,7 +661,7 @@ By default calling any of those make targets will (re-)download the toolchain
 sources. Run `make download-tools` to download the sources to `/var/cache/distfiles/`
 once in advance.
 
-*Note: These instructions are for git rev c3ad555 (2018-08-13) of riscv-gnu-toolchain.*
+*Note: These instructions are for git rev 411d134 (2018-02-14) of riscv-gnu-toolchain.*
 
 
 Linking binaries with newlib for PicoRV32

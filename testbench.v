@@ -75,12 +75,15 @@ module picorv32_wrapper #(
 	output [35:0] trace_data
 );
 	wire tests_passed;
-	reg [31:0] irq;
+	reg [31:0] irq = 0;
+
+	reg [15:0] count_cycle = 0;
+	always @(posedge clk) count_cycle <= resetn ? count_cycle + 1 : 0;
 
 	always @* begin
 		irq = 0;
-		irq[4] = &uut.picorv32_core.count_cycle[12:0];
-		irq[5] = &uut.picorv32_core.count_cycle[15:0];
+		irq[4] = &count_cycle[12:0];
+		irq[5] = &count_cycle[15:0];
 	end
 
 	wire        mem_axi_awvalid;
@@ -302,7 +305,7 @@ module axi4_memory #(
 
 	output reg        tests_passed
 );
-	reg [31:0]   memory [0:64*1024/4-1] /* verilator public */;
+	reg [31:0]   memory [0:128*1024/4-1] /* verilator public */;
 	reg verbose;
 	initial verbose = $test$plusargs("verbose") || VERBOSE;
 
@@ -380,7 +383,7 @@ module axi4_memory #(
 	task handle_axi_rvalid; begin
 		if (verbose)
 			$display("RD: ADDR=%08x DATA=%08x%s", latched_raddr, memory[latched_raddr >> 2], latched_rinsn ? " INSN" : "");
-		if (latched_raddr < 64*1024) begin
+		if (latched_raddr < 128*1024) begin
 			mem_axi_rdata <= memory[latched_raddr >> 2];
 			mem_axi_rvalid <= 1;
 			latched_raddr_en = 0;
@@ -393,7 +396,7 @@ module axi4_memory #(
 	task handle_axi_bvalid; begin
 		if (verbose)
 			$display("WR: ADDR=%08x DATA=%08x STRB=%04b", latched_waddr, latched_wdata, latched_wstrb);
-		if (latched_waddr < 64*1024) begin
+		if (latched_waddr < 128*1024) begin
 			if (latched_wstrb[0]) memory[latched_waddr >> 2][ 7: 0] <= latched_wdata[ 7: 0];
 			if (latched_wstrb[1]) memory[latched_waddr >> 2][15: 8] <= latched_wdata[15: 8];
 			if (latched_wstrb[2]) memory[latched_waddr >> 2][23:16] <= latched_wdata[23:16];

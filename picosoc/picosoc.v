@@ -26,6 +26,14 @@
 `define PICORV32_REGS picosoc_regs
 `endif
 
+`ifndef PICOSOC_MEM
+`define PICOSOC_MEM picosoc_mem
+`endif
+
+// this macro can be used to check if the verilog files in your
+// design are read in the correct order.
+`define PICOSOC_V
+
 module picosoc (
 	input clk,
 	input resetn,
@@ -219,7 +227,9 @@ module picosoc (
 	always @(posedge clk)
 		ram_ready <= mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS;
 
-	picosoc_mem #(.WORDS(MEM_WORDS)) memory (
+	`PICOSOC_MEM #(
+		.WORDS(MEM_WORDS)
+	) memory (
 		.clk(clk),
 		.wen((mem_valid && !mem_ready && mem_addr < 4*MEM_WORDS) ? mem_wstrb : 4'b0),
 		.addr(mem_addr[23:2]), // 地址高8位为io访问（既不是访问sram也不是访问flash），见Memory map

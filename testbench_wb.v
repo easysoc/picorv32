@@ -56,8 +56,6 @@ endmodule
 `endif
 
 module picorv32_wrapper #(
-	parameter BOOTROM_MEMFILE = "",
-	parameter BOOTROM_MEMDEPTH = 16384 * 4,
 	parameter VERBOSE = 0
 ) (
 	input wb_clk,
@@ -67,13 +65,16 @@ module picorv32_wrapper #(
 	output [35:0] trace_data
 );
 	wire tests_passed;
-	reg [31:0] irq;
+	reg [31:0] irq = 0;
 	wire mem_instr;
+
+	reg [15:0] count_cycle = 0;
+	always @(posedge wb_clk) count_cycle <= !wb_rst ? count_cycle + 1 : 0;
 
 	always @* begin
 		irq = 0;
-		irq[4] = &uut.picorv32_core.count_cycle[12:0];
-		irq[5] = &uut.picorv32_core.count_cycle[15:0];
+		irq[4] = &count_cycle[12:0];
+		irq[5] = &count_cycle[15:0];
 	end
 
 	wire [31:0] wb_m2s_adr;
@@ -86,7 +87,7 @@ module picorv32_wrapper #(
 	wire wb_s2m_ack;
 
 	wb_ram #(
-		.depth (16384 * 4),
+		.depth (128*1024),
 		.VERBOSE (VERBOSE)
 	) ram ( // Wishbone interface
 		.wb_clk_i(wb_clk),
@@ -263,7 +264,7 @@ module wb_ram #(
 	end
 
 	always @(posedge wb_clk_i) begin
-		if (waddr2 < 64 * 1024 / 4) begin
+		if (waddr2 < 128 * 1024 / 4) begin
 			if (we[0])
 				mem[waddr2][7:0] <= wb_dat_i[7:0];
 

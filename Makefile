@@ -1,10 +1,18 @@
 
-RISCV_GNU_TOOLCHAIN_GIT_REVISION = c3ad555
+RISCV_GNU_TOOLCHAIN_GIT_REVISION = 411d134
 RISCV_GNU_TOOLCHAIN_INSTALL_PREFIX = /opt/riscv32
 
+# Give the user some easy overrides for local configuration quirks.
+# If you change one of these and it breaks, then you get to keep both pieces.
 SHELL = bash
+PYTHON = python3
+VERILATOR = verilator
+ICARUS_SUFFIX =
+IVERILOG = iverilog$(ICARUS_SUFFIX)
+VVP = vvp$(ICARUS_SUFFIX)
+
 TEST_OBJS = $(addsuffix .o,$(basename $(wildcard tests/*.S)))
-FIRMWARE_OBJS = firmware/start.o firmware/irq.o firmware/print.o firmware/sieve.o firmware/multest.o firmware/stats.o
+FIRMWARE_OBJS = firmware/start.o firmware/irq.o firmware/print.o firmware/hello.o firmware/sieve.o firmware/multest.o firmware/stats.o
 GCC_WARNS  = -Werror -Wall -Wextra -Wshadow -Wundef -Wpointer-arith -Wcast-qual -Wcast-align -Wwrite-strings
 GCC_WARNS += -Wredundant-decls -Wstrict-prototypes -Wmissing-prototypes -pedantic # -Wconversion
 TOOLCHAIN_PREFIX = $(RISCV_GNU_TOOLCHAIN_INSTALL_PREFIX)i/bin/riscv32-unknown-elf-
@@ -14,64 +22,64 @@ COMPRESSED_ISA = C
 GIT_ENV = true
 
 test: testbench.vvp firmware/firmware.hex
-	vvp -N $<
+	$(VVP) -N $<
 
 test_vcd: testbench.vvp firmware/firmware.hex
-	vvp -N $< +vcd +trace +noerror
+	$(VVP) -N $< +vcd +trace +noerror
 
 test_rvf: testbench_rvf.vvp firmware/firmware.hex
-	vvp -N $< +vcd +trace +noerror
+	$(VVP) -N $< +vcd +trace +noerror
 
 test_wb: testbench_wb.vvp firmware/firmware.hex
-	vvp -N $<
+	$(VVP) -N $<
 
 test_wb_vcd: testbench_wb.vvp firmware/firmware.hex
-	vvp -N $< +vcd +trace +noerror
+	$(VVP) -N $< +vcd +trace +noerror
 
 test_ez: testbench_ez.vvp
-	vvp -N $<
+	$(VVP) -N $<
 
 test_ez_vcd: testbench_ez.vvp
-	vvp -N $< +vcd
+	$(VVP) -N $< +vcd
 
 test_sp: testbench_sp.vvp firmware/firmware.hex
-	vvp -N $<
+	$(VVP) -N $<
 
 test_axi: testbench.vvp firmware/firmware.hex
-	vvp -N $< +axi_test
+	$(VVP) -N $< +axi_test
 
 test_synth: testbench_synth.vvp firmware/firmware.hex
-	vvp -N $<
+	$(VVP) -N $<
 
 test_verilator: testbench_verilator firmware/firmware.hex
 	./testbench_verilator
 
 testbench.vvp: testbench.v picorv32.v
-	iverilog -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
+	$(IVERILOG) -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
 	chmod -x $@
 
 testbench_rvf.vvp: testbench.v picorv32.v rvfimon.v
-	iverilog -o $@ -D RISCV_FORMAL $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
+	$(IVERILOG) -o $@ -D RISCV_FORMAL $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
 	chmod -x $@
 
 testbench_wb.vvp: testbench_wb.v picorv32.v
-	iverilog -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
+	$(IVERILOG) -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
 	chmod -x $@
 
 testbench_ez.vvp: testbench_ez.v picorv32.v
-	iverilog -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
+	$(IVERILOG) -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) $^
 	chmod -x $@
 
 testbench_sp.vvp: testbench.v picorv32.v
-	iverilog -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) -DSP_TEST $^
+	$(IVERILOG) -o $@ $(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) -DSP_TEST $^
 	chmod -x $@
 
 testbench_synth.vvp: testbench.v synth.v
-	iverilog -o $@ -DSYNTH_TEST $^
+	$(IVERILOG) -o $@ -DSYNTH_TEST $^
 	chmod -x $@
 
-testbench_verilator: testbench.v picorv32.v
-	verilator --cc --exe -Wno-lint -trace --top-module picorv32_wrapper testbench.v picorv32.v testbench.cc \
+testbench_verilator: testbench.v picorv32.v testbench.cc
+	$(VERILATOR) --cc --exe -Wno-lint -trace --top-module picorv32_wrapper testbench.v picorv32.v testbench.cc \
 			$(subst C,-DCOMPRESSED_ISA,$(COMPRESSED_ISA)) --Mdir testbench_verilator_dir
 	$(MAKE) -C testbench_verilator_dir -f Vpicorv32_wrapper.mk
 	cp testbench_verilator_dir/Vpicorv32_wrapper testbench_verilator
@@ -92,7 +100,7 @@ synth.v: picorv32.v scripts/yosys/synth_sim.ys
 	yosys -qv3 -l synth.log scripts/yosys/synth_sim.ys
 
 firmware/firmware.hex: firmware/firmware.bin firmware/makehex.py
-	python3 firmware/makehex.py $< 16384 > $@
+	$(PYTHON) firmware/makehex.py $< 32768 > $@
 
 firmware/firmware.bin: firmware/firmware.elf
 	$(TOOLCHAIN_PREFIX)objcopy -O binary $< $@
@@ -116,7 +124,7 @@ tests/%.o: tests/%.S tests/riscv_test.h tests/test_macros.h
 
 download-tools:
 	sudo bash -c 'set -ex; mkdir -p /var/cache/distfiles; $(GIT_ENV); \
-	$(foreach REPO,riscv-gnu-toolchain riscv-binutils-gdb riscv-dejagnu riscv-gcc riscv-glibc riscv-newlib riscv-qemu, \
+	$(foreach REPO,riscv-gnu-toolchain riscv-binutils-gdb riscv-gcc riscv-glibc riscv-newlib, \
 		if ! test -d /var/cache/distfiles/$(REPO).git; then rm -rf /var/cache/distfiles/$(REPO).git.part; \
 			git clone --bare https://github.com/riscv/$(REPO) /var/cache/distfiles/$(REPO).git.part; \
 			mv /var/cache/distfiles/$(REPO).git.part /var/cache/distfiles/$(REPO).git; else \
@@ -132,20 +140,16 @@ build-$(1)-tools-bh:
 	+set -ex; $(GIT_ENV); \
 	if [ -d /var/cache/distfiles/riscv-gnu-toolchain.git ]; then reference_riscv_gnu_toolchain="--reference /var/cache/distfiles/riscv-gnu-toolchain.git"; else reference_riscv_gnu_toolchain=""; fi; \
 	if [ -d /var/cache/distfiles/riscv-binutils-gdb.git ]; then reference_riscv_binutils_gdb="--reference /var/cache/distfiles/riscv-binutils-gdb.git"; else reference_riscv_binutils_gdb=""; fi; \
-	if [ -d /var/cache/distfiles/riscv-dejagnu.git ]; then reference_riscv_dejagnu="--reference /var/cache/distfiles/riscv-dejagnu.git"; else reference_riscv_dejagnu=""; fi; \
 	if [ -d /var/cache/distfiles/riscv-gcc.git ]; then reference_riscv_gcc="--reference /var/cache/distfiles/riscv-gcc.git"; else reference_riscv_gcc=""; fi; \
 	if [ -d /var/cache/distfiles/riscv-glibc.git ]; then reference_riscv_glibc="--reference /var/cache/distfiles/riscv-glibc.git"; else reference_riscv_glibc=""; fi; \
 	if [ -d /var/cache/distfiles/riscv-newlib.git ]; then reference_riscv_newlib="--reference /var/cache/distfiles/riscv-newlib.git"; else reference_riscv_newlib=""; fi; \
-	if [ -d /var/cache/distfiles/riscv-qemu.git ]; then reference_riscv_qemu="--reference /var/cache/distfiles/riscv-qemu.git"; else reference_riscv_qemu=""; fi; \
 	rm -rf riscv-gnu-toolchain-$(1); git clone $$$$reference_riscv_gnu_toolchain https://github.com/riscv/riscv-gnu-toolchain riscv-gnu-toolchain-$(1); \
 	cd riscv-gnu-toolchain-$(1); git checkout $(RISCV_GNU_TOOLCHAIN_GIT_REVISION); \
 	git submodule update --init $$$$reference_riscv_binutils_gdb riscv-binutils; \
 	git submodule update --init $$$$reference_riscv_binutils_gdb riscv-gdb; \
-	git submodule update --init $$$$reference_riscv_dejagnu riscv-dejagnu; \
 	git submodule update --init $$$$reference_riscv_gcc riscv-gcc; \
 	git submodule update --init $$$$reference_riscv_glibc riscv-glibc; \
 	git submodule update --init $$$$reference_riscv_newlib riscv-newlib; \
-	git submodule update --init $$$$reference_riscv_qemu riscv-qemu; \
 	mkdir build; cd build; ../configure --with-arch=$(2) --prefix=$(RISCV_GNU_TOOLCHAIN_INSTALL_PREFIX)$(subst riscv32,,$(1)); make
 
 .PHONY: build-$(1)-tools
