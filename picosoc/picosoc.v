@@ -17,12 +17,8 @@
  *
  */
 
-`ifndef PICORV32_REGS
-`ifdef PICORV32_V
-`error "picosoc.v must be read before picorv32.v!"
-`endif
-
 // 通过 PICORV32_REGS 开关实现外部可定义regfile，如使用 block sram
+`ifndef PICORV32_REGS
 `define PICORV32_REGS picosoc_regs
 `endif
 
@@ -30,22 +26,28 @@
 `define PICOSOC_MEM picosoc_mem
 `endif
 
+// `include "simpleuart.v"
+// `include "spimemio.v"
+// `include "../picorv32.sv"
+
 // this macro can be used to check if the verilog files in your
 // design are read in the correct order.
 `define PICOSOC_V
 
+// FPGA 无关，主要实现将 picorv32 内核同其它外设如 Memory、UART、SPI flash 等通过总线或内存地址映射连接起来
+// 这里使用基于 valid/ready 的内存映射
 module picosoc (
 	input clk,
-	input resetn,
+	input resetn,	// 高电平时电路达到稳定状态，否则应该使寄存器为 0
 
-	// memory mapped peripherals（address >= 0x02000000） 访问接口（总线）
-	// https://inst.eecs.berkeley.edu/~cs150/Documents/Interfaces.pdf
-	// valid/ready 仅用于输出数据（写）同步，输入数据（读）为异步
+	// GPIO or memory mapped peripherals（address >= 0x02000000） 访问接口
+	// hx8kdemo 示例中主要用来控制 led，uart 和 flash 不使用此处端口而是通过额外的接口访问
+	// 这里的方向命名以 picorv32 为基准
 	output        iomem_valid,
-	input         iomem_ready,
-	output [ 3:0] iomem_wstrb,
+	input         iomem_ready,	// 用于告诉 picorv32，外设准备好接收数据
 	output [31:0] iomem_addr,
 	output [31:0] iomem_wdata,
+	output [ 3:0] iomem_wstrb,
 	input  [31:0] iomem_rdata,
 
 	input  irq_5,
@@ -80,29 +82,33 @@ module picosoc (
 	parameter [0:0] ENABLE_IRQ_QREGS = 0;
 
 	// 声明sram大小、终止地址（1KB，栈起始地址）及程序起始地址（PC初始化地址：0x0010_0000=1048576=1MB，前面存放位流文件）
-	parameter integer MEM_WORDS = 256;
-	parameter [31:0] STACKADDR = (4*MEM_WORDS);       // end of memory
-	parameter [31:0] PROGADDR_RESET = 32'h 0010_0000; // 1 MB into flash
+	parameter integer MEM_WORDS = 256;	// sram 大小(按字)，因为 sarm 地址从 0 开始，实际减 1
+	// sram 和 flash 区域应当和 sections.lds 的设置一致
+	parameter [31:0] STACKADDR = (4*MEM_WORDS);       // sarm 结束地址
+	parameter [31:0] PROGADDR_RESET = 32'h 0010_0000; // 2的20次方 = 1 MB
 	parameter [31:0] PROGADDR_IRQ = 32'h 0000_0000;
 
-	// 中断向量，因always语法规定声明为reg，实际为wire类型
+	// picorv32 支持 32 位的中断向量，因always语法规定声明为reg，实际为wire类型
 	reg [31:0] irq;
 	wire irq_stall = 0;
 	wire irq_uart = 0;
 
-	// 内部和外部中断定义
+	// 外部中断定义，其中前 3 个为 built-in
+	// 0	Timer Interrupt
+	// 1	EBREAK/ECALL or Illegal Instruction
+	// 2	BUS Error (Unalign Memory Access)
 	always @* begin
 		irq = 0;
 		irq[3] = irq_stall;
-		irq[4] = irq_uart;
+		irq[4] = irq_uart;	// 没有使用
 		irq[5] = irq_5;
 		irq[6] = irq_6;
 		irq[7] = irq_7;
 	end
 
-	// 见picorv32端口声明，因picorv32访问sram、flash、uart使用同一接口，下面代码会根据实际情况进行处理
+	// 将 picorv32 对应的端口接出来
+	wire mem_instr;	// picosoc 没有使用
 	wire mem_valid;
-	wire mem_instr;
 	wire mem_ready;
 	wire [31:0] mem_addr;
 	wire [31:0] mem_wdata;
@@ -117,11 +123,22 @@ module picosoc (
 	reg ram_ready;
 	wire [31:0] ram_rdata;
 
-	// 地址高8位如果大于0x01为io访问（大于8MiB为非memory区间），见Memory map
+	/** Memory map
+		注意：实际 SRAM 和 flash 物理尺寸一般小于内存映射规定的最大值
+		Address Range	Description
+		0x00000000 .. 0x01FFFFFF	SRAM 和 Flash 共享，其中 SRAM < 4*MEM_WORDS
+		0x02000000 .. 0x02000003	SPI Flash Controller Config Register
+		0x02000004 .. 0x02000007	UART Clock Divider Register
+		0x02000008 .. 0x0200000B	UART Send/Recv Data Register
+		0x03000000 .. 0xFFFFFFFF	Memory mapped user peripherals
+	*/
+	// Reading from the addresses in the internal SRAM region beyond the end of the physical SRAM will
+	// read from the corresponding addresses in serial flash.
+	// picorv32 准备好写数据，且写地址大于 0x01FFFFFF
 	assign iomem_valid = mem_valid && (mem_addr[31:24] > 8'h 01);
-	assign iomem_wstrb = mem_wstrb;
 	assign iomem_addr = mem_addr;
 	assign iomem_wdata = mem_wdata;
+	assign iomem_wstrb = mem_wstrb;
 
 	// SPI Flash Controller Config Register（32 bits）,see Memory map
 	wire spimemio_cfgreg_sel = mem_valid && (mem_addr == 32'h 0200_0000);
@@ -136,16 +153,25 @@ module picosoc (
 	wire [31:0] simpleuart_reg_dat_do;
 	wire        simpleuart_reg_dat_wait;
 
-	// 用于判断 sram、flash、spi、uart等外设是否准备好接收写入数据
+	// 用于判断 sram、flash、spi、uart等外设之一是否准备好接收从 picorv32 发送过来的数据
 	// 因picorv32同这些模块交互使用同一 memory 访问接口，因此需要根据不同情况获取ready信号，共6种情况
-	assign mem_ready = (iomem_valid && iomem_ready) || spimem_ready || ram_ready || spimemio_cfgreg_sel ||
-			simpleuart_reg_div_sel || (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
+	assign mem_ready = (iomem_valid && iomem_ready)	// 访问非存储器且外设准备好接收数据
+		|| spimem_ready // spi falsh 准备好接收数据
+		|| ram_ready 	// sram 准备好接收数据
+		|| spimemio_cfgreg_sel // 地址是 SPI Flash Controller Config Register 即可
+		|| simpleuart_reg_div_sel
+		|| (simpleuart_reg_dat_sel && !simpleuart_reg_dat_wait);
 
 	// 用于从区分从 sram、flash、spi、uart等外设读取的数据
-	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata : spimem_ready ? spimem_rdata : ram_ready ? ram_rdata :
-			spimemio_cfgreg_sel ? spimemio_cfgreg_do : simpleuart_reg_div_sel ? simpleuart_reg_div_do :
+	// mem_valid 和 mem_addr 一起实现了类似片选的功能
+	assign mem_rdata = (iomem_valid && iomem_ready) ? iomem_rdata :
+			spimem_ready ? spimem_rdata :
+			ram_ready ? ram_rdata :
+			spimemio_cfgreg_sel ? spimemio_cfgreg_do :
+			simpleuart_reg_div_sel ? simpleuart_reg_div_do :
 			simpleuart_reg_dat_sel ? simpleuart_reg_dat_do : 32'h 0000_0000;
 
+	// picorv32 通过 valid/ready 接口和 SRAM、SPI Flash、Uart、GPIO 交互
 	picorv32 #(
 		.STACKADDR(STACKADDR),
 		.PROGADDR_RESET(PROGADDR_RESET),
@@ -160,26 +186,23 @@ module picosoc (
 	) cpu (
 		.clk         (clk        ),
 		.resetn      (resetn     ),
-		.mem_valid   (mem_valid  ),
-		.mem_instr   (mem_instr  ),
-		.mem_ready   (mem_ready  ),
-		.mem_addr    (mem_addr   ),
-		.mem_wdata   (mem_wdata  ),
-		.mem_wstrb   (mem_wstrb  ),
-		.mem_rdata   (mem_rdata  ),
-		.irq         (irq        )
+		.mem_valid   (mem_valid  ),	// output
+		.mem_instr   (mem_instr  ),	// output
+		.mem_ready   (mem_ready  ),	// input
+		.mem_addr    (mem_addr   ),	// output
+		.mem_wdata   (mem_wdata  ),	// output
+		.mem_wstrb   (mem_wstrb  ),	// output
+		.mem_rdata   (mem_rdata  ), // input
+		.irq         (irq        )  // input
 	);
 
+	// picorv32 通过 valid/ready 接口和 spimemio 交互进而访问 flash
 	spimemio spimemio (
 		.clk    (clk),
 		.resetn (resetn),
-		// 确定是否访问flash，sram address >= 0x00000000 && < 4*MEM_WORDS
-		// 因最大flash地址为0x01FFFFFF，因此可以支持8MiB大小的flash
-		// Reading from the addresses in the internal SRAM region beyond the end of the physical SRAM 
-		// will read from the corresponding addresses in serial flash.
 		.valid  (mem_valid && mem_addr >= 4*MEM_WORDS && mem_addr < 32'h 0200_0000),
 		.ready  (spimem_ready),
-		// sram和自带4MiB的flash地址重叠，且最大为 0x00FFFFFF，即实际只使用了24位地址空间
+		// sram和flash地址重叠，且最大为 0x00FFFFFF，即实际只使用了24位地址空间
 		.addr   (mem_addr[23:0]),
 		.rdata  (spimem_rdata),
 
@@ -236,13 +259,13 @@ module picosoc (
 		.wdata(mem_wdata),
 		.rdata(ram_rdata)
 	);
-endmodule
+endmodule : picosoc
 
 // Implementation note:
 // Replace the following two modules with wrappers for your SRAM cells.
 // 可通过显式的例化sram实现下述模块，否则由综合器自动推断
 
-// 包含32个32位寄存器的3端口register file
+// 包含32个32位寄存器的3端口 register file
 module picosoc_regs (
 	input clk, wen,
 	input [5:0] waddr,
@@ -252,6 +275,7 @@ module picosoc_regs (
 	output [31:0] rdata1,
 	output [31:0] rdata2
 );
+	// start.s 通常会初始化 register file，这里不需要硬件初始化
 	reg [31:0] regs [0:31];
 
 	always @(posedge clk)
@@ -259,26 +283,29 @@ module picosoc_regs (
 
 	assign rdata1 = regs[raddr1[4:0]];
 	assign rdata2 = regs[raddr2[4:0]];
-endmodule
+endmodule : picosoc_regs
 
-// 默认 256*32 bits 大小的双端口sram，写使能（wen）为4位以支持按字节写入
+// 默认 256*32 bits 即 1KB 大小的双端口sram，写使能（wen）为4位以支持按字节写入
 module picosoc_mem #(
 	parameter integer WORDS = 256
 ) (
 	input clk,
 	input [3:0] wen,
-	input [21:0] addr,	// correspond mem_addr[23:2]，因为 WORDS 可自定义，所以这里不严格限制地址位数，仅限制为非IO访问地址范围
+	// addr 必须 word 对齐，对应 mem_addr[23:2]，因为 SRAM 大小 WORDS 可自定义，所以这里不可严格限制地址位数，仅限制为小于 mem_addr[31:24]
+	// 超过 SRAM 地址大小的地址对应的从 flash 访问
+	input [21:0] addr,
 	input [31:0] wdata,
 	output reg [31:0] rdata
 );
 	reg [31:0] mem [0:WORDS-1];
 
 	always @(posedge clk) begin
+		// 每次读取一个字，即 4 字节，写支持 mask
 		rdata <= mem[addr];
 		if (wen[0]) mem[addr][ 7: 0] <= wdata[ 7: 0];
 		if (wen[1]) mem[addr][15: 8] <= wdata[15: 8];
 		if (wen[2]) mem[addr][23:16] <= wdata[23:16];
 		if (wen[3]) mem[addr][31:24] <= wdata[31:24];
 	end
-endmodule
+endmodule : picosoc_mem
 

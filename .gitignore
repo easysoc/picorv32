@@ -1,3 +1,5 @@
+.idea
+test.sv
 /tests/*.o
 /firmware/*.o
 /firmware/firmware.bin

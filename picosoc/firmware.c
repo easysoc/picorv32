@@ -655,9 +655,10 @@ void cmd_benchmark_all()
 
 void cmd_echo()
 {
-	print("Return to menu by sending '!'\n\n");
+    print("This example reads your input and returns the input characters in real time\n");
+	print("Return to menu by Press ENTER\n\n");
 	char c;
-	while ((c = getchar()) != '!')
+	while ((c = getchar()) != '\r')
 		putchar(c);
 }
 
@@ -709,6 +710,7 @@ void main()
 		print("   [7] Toggle continuous read mode\n");
 		print("   [9] Run simplistic benchmark\n");
 		print("   [0] Benchmark all configs\n");
+		print("   [h] Print Hello World\n");
 		print("   [M] Run Memtest\n");
 		print("   [S] Print SPI state\n");
 		print("   [e] Echo UART\n");
@@ -724,6 +726,9 @@ void main()
 
 			switch (cmd)
 			{
+			case 'h':
+			    print("Hello World\n");
+			    break;
 			case '1':
 				cmd_read_flash_id();
 				break;
